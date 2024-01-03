@@ -156,6 +156,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Command::parse(&text, "").ok()
         })
         .map_async(|dialogue: BotDialogue| async move { dialogue.get().await.ok().flatten() })
+        // Commands
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::Start)))
                 .endpoint(print_start_info),
@@ -172,15 +173,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             dptree::filter(|command| matches!(command, Some(Command::UpdateEmergencyText)))
                 .endpoint(ask_for_emergency_info),
         )
+        // Dialogs
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::GetEmergencyText)))
+                .endpoint(get_emergency_info),
+        )
         .branch(
             dptree::filter(|state: BotDialogState| {
                 matches!(state, BotDialogState::WaitingEmergencyText)
             })
             .endpoint(update_emergency_info),
-        )
-        .branch(
-            dptree::filter(|command| matches!(command, Some(Command::GetEmergencyText)))
-                .endpoint(get_emergency_info),
         )
         .endpoint(|bot: Bot, message: Message| async move {
             bot.send_message(message.chat.id, "Unknown command!")
@@ -201,47 +203,3 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
-// async fn command_handler(
-//     bot: &Bot,
-//     message: &Message,
-//     command: Command,
-//     connection: Arc<DatabaseConnection>,
-//     dialogue: Dialogue<DialogState, InMemStorage<DialogState>>,
-// ) {
-//     let connection = &*connection;
-
-//     match command {
-//         Command::GetEmergencyText => {
-//             let res = EmergencyInfo::find()
-//                 .filter(emergency_info::Column::ChatId.eq(message.chat.id.0))
-//                 .one(connection)
-//                 .await;
-
-//             if res.is_err() {
-//                 error!("Can't read an entry: {:?}", res.err());
-//                 let _ = bot
-//                     .send_message(message.chat.id, format!("Can't read!"))
-//                     .await;
-//                 return;
-//             }
-
-//             let res = res.unwrap();
-//             if res.is_none() {
-//                 let _ = bot
-//                     .send_message(message.chat.id, format!("Can't find an entry!"))
-//                     .await;
-//                 return;
-//             }
-
-//             let res = res.unwrap();
-
-//             let _ = bot
-//                 .send_message(
-//                     message.chat.id,
-//                     format!("Current emergency text:\n{}", res.text),
-//                 )
-//                 .await;
-//         }
-//     };
-// }
