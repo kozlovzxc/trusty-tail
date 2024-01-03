@@ -1,0 +1,20 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Push to dokku
+      uses: dokku/github-action@v2.0.7
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        dokku-host: ${{ secrets.DOKKU_HOST }}
+        app-name: trusty-tail
