@@ -1,8 +1,19 @@
-use entity::{alive_events, prelude::*};
-use sea_orm::{ColumnTrait, Database, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
+use chrono::NaiveDateTime;
+use entity::{alive_events, monitoring_statuses};
+use sea_orm::{
+    ColumnTrait, Database, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
+    QuerySelect,
+};
 use std::error::Error;
 use teloxide::{requests::Requester, types::ChatId, Bot};
 use trusty_tail::config::Config;
+
+#[derive(Debug, FromQueryResult, Clone, PartialEq)]
+pub struct MonitoringStatusesAliveJoin {
+    pub chat_id: i64,
+    pub enabled: bool,
+    pub timestamp: NaiveDateTime,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -19,30 +30,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let bot = Bot::from_env();
 
     log::info!("Checking statuses...");
-    let mut statuses_pages = MonitoringStatuses::find().paginate(&connection, 50);
+    let mut statuses_pages = monitoring_statuses::Entity::find()
+        .column_as(alive_events::Column::Timestamp, "timestamp")
+        .join_rev(
+            JoinType::InnerJoin,
+            alive_events::Entity::belongs_to(monitoring_statuses::Entity)
+                .from(alive_events::Column::ChatId)
+                .to(monitoring_statuses::Column::ChatId)
+                .into(),
+        )
+        .filter(
+            alive_events::Column::Timestamp
+                .lt(chrono::Utc::now().naive_utc() - chrono::Duration::days(3)),
+        )
+        .into_model::<MonitoringStatusesAliveJoin>()
+        .paginate(&connection, 50);
+
     while let Some(statuses) = statuses_pages.fetch_and_next().await? {
         for status in statuses {
-            let alive_event = AliveEvents::find()
-                .filter(alive_events::Column::ChatId.eq(status.chat_id))
-                .order_by_desc(alive_events::Column::Timestamp)
-                .one(&connection)
-                .await?;
-            match alive_event {
-                Some(alive_event) => {
-                    let now = chrono::Utc::now().naive_utc();
-                    let diff = now - alive_event.timestamp;
-                    if diff.num_days() > 3 {
-                        bot.send_message(
-                            ChatId(status.chat_id),
-                            "Please confirm that you are alive by using\n/alive",
-                        )
-                        .await?;
-                    }
-                }
-                None => {
-                    // pass
-                }
-            }
+            bot.send_message(
+                ChatId(status.chat_id),
+                "Please confirm that you are alive by using\n/alive",
+            )
+            .await?;
         }
     }
 
