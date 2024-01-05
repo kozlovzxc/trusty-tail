@@ -1,29 +1,30 @@
 mod config;
 
+use chrono::Utc;
 use config::Config;
 use entity::{prelude::*, *};
 use migration::Migrator;
 use sea_orm::{ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use sea_orm_migration::prelude::*;
 use std::error::Error;
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::{prelude::*, utils::command::BotCommands};
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
 #[command(
-    rename_rule = "lowercase",
+    rename_rule = "snake_case",
     description = "These commands are supported:"
 )]
 enum Command {
     Start,
-    #[command(description = "display this text.")]
     Help,
-    TestError,
-    #[command(description = "Add text regarding what to do in case of emergency")]
     UpdateEmergencyText,
-    #[command(description = "Get text regarding what to do in case of emergency")]
     GetEmergencyText,
+    Alive,
+    Enable,
+    Disable,
+    Status,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -43,28 +44,10 @@ async fn print_start_info(bot: Bot, message: Message, dialogue: BotDialogue) -> 
     Ok(())
 }
 
-#[derive(Debug)]
-pub enum TestError {
-    SimpleError(String),
-}
-
-impl fmt::Display for TestError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            TestError::SimpleError(ref msg) => write!(f, "{}", msg),
-        }
-    }
-}
-
-impl Error for TestError {}
-
-async fn trigger_error() -> HandlerResult {
-    Err(Box::new(TestError::SimpleError("Simple error".into())))
-}
-
 async fn print_help_info(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
     dialogue.exit().await?;
-    bot.send_message(message.chat.id, "Help!").await?;
+    bot.send_message(message.chat.id, Command::descriptions().to_string())
+        .await?;
     Ok(())
 }
 
@@ -130,6 +113,112 @@ async fn get_emergency_info(
     Ok(())
 }
 
+async fn mark_alive(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    AliveEvents::insert(alive_events::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        timestamp: ActiveValue::Set(Utc::now().naive_utc()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(alive_events::Column::ChatId)
+            .update_column(alive_events::Column::Timestamp)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await?;
+
+    bot.send_message(message.chat.id, "Marked as alive!")
+        .await?;
+    Ok(())
+}
+
+async fn enable(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    MonitoringStatuses::insert(monitoring_statuses::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        enabled: ActiveValue::Set(true),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(monitoring_statuses::Column::ChatId)
+            .update_column(monitoring_statuses::Column::Enabled)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await?;
+
+    bot.send_message(message.chat.id, "Enabled!").await?;
+    Ok(())
+}
+
+async fn disable(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    MonitoringStatuses::insert(monitoring_statuses::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        enabled: ActiveValue::Set(false),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(monitoring_statuses::Column::ChatId)
+            .update_column(monitoring_statuses::Column::Enabled)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await?;
+
+    bot.send_message(message.chat.id, "Disabled!").await?;
+    Ok(())
+}
+
+async fn get_status(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    let monitoring_status = MonitoringStatuses::find()
+        .filter(monitoring_statuses::Column::ChatId.eq(message.chat.id.0))
+        .one(&connection)
+        .await?;
+
+    match monitoring_status {
+        Some(monitoring_status) => {
+            bot.send_message(
+                message.chat.id,
+                format!("Monitoring status: {}", monitoring_status.enabled),
+            )
+            .await?;
+        }
+        None => {
+            bot.send_message(message.chat.id, "Monitoring is not set")
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
@@ -162,10 +251,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .endpoint(print_start_info),
         )
         .branch(
-            dptree::filter(|command| matches!(command, Some(Command::TestError)))
-                .endpoint(trigger_error),
-        )
-        .branch(
             dptree::filter(|command| matches!(command, Some(Command::Help)))
                 .endpoint(print_help_info),
         )
@@ -173,11 +258,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
             dptree::filter(|command| matches!(command, Some(Command::UpdateEmergencyText)))
                 .endpoint(ask_for_emergency_info),
         )
-        // Dialogs
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::GetEmergencyText)))
                 .endpoint(get_emergency_info),
         )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::Alive))).endpoint(mark_alive),
+        )
+        .branch(dptree::filter(|command| matches!(command, Some(Command::Enable))).endpoint(enable))
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::Disable))).endpoint(disable),
+        )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::Status))).endpoint(get_status),
+        )
+        // Dialogs
         .branch(
             dptree::filter(|state: BotDialogState| {
                 matches!(state, BotDialogState::WaitingEmergencyText)

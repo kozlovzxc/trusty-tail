@@ -3,6 +3,7 @@ name = "trusty-tail"
 version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
+default-run = "trusty-tail"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,3 +20,4 @@ sea-orm-cli = "0.12"
 sea-orm-migration = "0.12"
 entity = { path = "./entity" }
 migration = { path = "./migration" }
+chrono = "0.4.31"
