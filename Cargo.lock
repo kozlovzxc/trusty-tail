@@ -3421,6 +3421,7 @@ dependencies = [
  "log",
  "migration",
  "pretty_env_logger",
+ "rand",
  "sea-orm",
  "sea-orm-cli",
  "sea-orm-migration",

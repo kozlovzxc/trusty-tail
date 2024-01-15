@@ -2,9 +2,13 @@ mod config;
 
 use chrono::Utc;
 use config::Config;
-use entity::{prelude::*, *};
+use entity::*;
 use migration::Migrator;
-use sea_orm::{ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
+use rand::{distributions::Alphanumeric, Rng};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait,
+    JoinType, QueryFilter, QuerySelect,
+};
 use sea_orm_migration::prelude::*;
 use std::error::Error;
 use std::fmt::Debug;
@@ -25,6 +29,9 @@ enum Command {
     Enable,
     Disable,
     Status,
+    GetInvite,
+    AcceptInvite,
+    GetSecondaryOwners,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -32,6 +39,7 @@ enum BotDialogState {
     #[default]
     Idle,
     WaitingEmergencyText,
+    WaitingForInvite,
 }
 
 type BotDialogue = Dialogue<BotDialogState, InMemStorage<BotDialogState>>;
@@ -76,7 +84,7 @@ async fn update_emergency_info(
         chat_id: ActiveValue::Set(message.chat.id.0),
         ..Default::default()
     };
-    EmergencyInfo::insert(new_emergency_info)
+    emergency_info::Entity::insert(new_emergency_info)
         .on_conflict(
             OnConflict::column(emergency_info::Column::ChatId)
                 .update_column(emergency_info::Column::Text)
@@ -96,7 +104,7 @@ async fn get_emergency_info(
     connection: DatabaseConnection,
 ) -> HandlerResult {
     dialogue.exit().await?;
-    let emergency_info = EmergencyInfo::find()
+    let emergency_info = emergency_info::Entity::find()
         .filter(emergency_info::Column::ChatId.eq(message.chat.id.0))
         .one(&connection)
         .await?;
@@ -121,7 +129,7 @@ async fn mark_alive(
 ) -> HandlerResult {
     dialogue.exit().await?;
 
-    AliveEvents::insert(alive_events::ActiveModel {
+    alive_events::Entity::insert(alive_events::ActiveModel {
         chat_id: ActiveValue::Set(message.chat.id.0),
         timestamp: ActiveValue::Set(Utc::now().naive_utc()),
         ..Default::default()
@@ -147,7 +155,7 @@ async fn enable(
 ) -> HandlerResult {
     dialogue.exit().await?;
 
-    MonitoringStatuses::insert(monitoring_statuses::ActiveModel {
+    monitoring_statuses::Entity::insert(monitoring_statuses::ActiveModel {
         chat_id: ActiveValue::Set(message.chat.id.0),
         enabled: ActiveValue::Set(true),
         ..Default::default()
@@ -172,7 +180,7 @@ async fn disable(
 ) -> HandlerResult {
     dialogue.exit().await?;
 
-    MonitoringStatuses::insert(monitoring_statuses::ActiveModel {
+    monitoring_statuses::Entity::insert(monitoring_statuses::ActiveModel {
         chat_id: ActiveValue::Set(message.chat.id.0),
         enabled: ActiveValue::Set(false),
         ..Default::default()
@@ -197,7 +205,7 @@ async fn get_status(
 ) -> HandlerResult {
     dialogue.exit().await?;
 
-    let monitoring_status = MonitoringStatuses::find()
+    let monitoring_status = monitoring_statuses::Entity::find()
         .filter(monitoring_statuses::Column::ChatId.eq(message.chat.id.0))
         .one(&connection)
         .await?;
@@ -216,6 +224,134 @@ async fn get_status(
         }
     }
 
+    Ok(())
+}
+
+async fn get_invite_code(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    let invite = match invites::Entity::find()
+        .filter(invites::Column::ChatId.eq(message.chat.id.0))
+        .one(&connection)
+        .await?
+    {
+        Some(invite) => invite,
+        None => {
+            let invite_code = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(8)
+                .map(char::from)
+                .collect();
+
+            let invite = invites::ActiveModel {
+                chat_id: ActiveValue::Set(message.chat.id.0),
+                invite: ActiveValue::Set(invite_code),
+                ..Default::default()
+            };
+
+            invite.insert(&connection).await?
+        }
+    };
+
+    bot.send_message(message.chat.id, invite.invite).await?;
+    Ok(())
+}
+
+async fn ask_for_invite(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
+    dialogue.update(BotDialogState::WaitingForInvite).await?;
+
+    bot.send_message(message.chat.id, "Please enter invite code.")
+        .await?;
+    Ok(())
+}
+
+async fn accept_invite(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    let invite_code = message.text().unwrap_or("").to_string();
+    let invite = invites::Entity::find()
+        .filter(invites::Column::Invite.eq(invite_code))
+        .one(&connection)
+        .await
+        .ok()
+        .flatten();
+
+    if invite.is_none() {
+        bot.send_message(message.chat.id, "Invalid invite code.")
+            .await?;
+        return Ok(());
+    }
+    let invite = invite.unwrap();
+
+    secondary_owners::Entity::insert(secondary_owners::ActiveModel {
+        primary_owner_chat_id: ActiveValue::Set(invite.chat_id),
+        secondary_owner_chat_id: ActiveValue::Set(message.chat.id.0),
+        ..Default::default()
+    })
+    .exec(&connection)
+    .await?;
+
+    let username = message
+        .from()
+        .and_then(|user| user.username.clone())
+        .unwrap_or("Unknown".to_string());
+
+    let new_profile = profiles::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        username: ActiveValue::Set(username),
+        ..Default::default()
+    };
+    profiles::Entity::insert(new_profile)
+        .on_conflict(
+            OnConflict::column(profiles::Column::ChatId)
+                .update_column(profiles::Column::Username)
+                .to_owned(),
+        )
+        .exec(&connection)
+        .await?;
+
+    bot.send_message(message.chat.id, "Accepted!").await?;
+    Ok(())
+}
+
+async fn get_secondary_owners(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
+    dialogue.exit().await?;
+
+    let profiles = profiles::Entity::find()
+        .join_rev(
+            JoinType::InnerJoin,
+            secondary_owners::Entity::belongs_to(profiles::Entity)
+                .from(secondary_owners::Column::SecondaryOwnerChatId)
+                .to(profiles::Column::ChatId)
+                .into(),
+        )
+        .filter(secondary_owners::Column::PrimaryOwnerChatId.eq(message.chat.id.0))
+        .all(&connection)
+        .await?;
+
+    let formatted_profiles = profiles
+        .iter()
+        .map(|profile| format!("@{}", profile.username.clone()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    bot.send_message(message.chat.id, formatted_profiles)
+        .await?;
     Ok(())
 }
 
@@ -272,12 +408,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::Status))).endpoint(get_status),
         )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::GetInvite)))
+                .endpoint(get_invite_code),
+        )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::AcceptInvite)))
+                .endpoint(ask_for_invite),
+        )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::GetSecondaryOwners)))
+                .endpoint(get_secondary_owners),
+        )
         // Dialogs
         .branch(
             dptree::filter(|state: BotDialogState| {
                 matches!(state, BotDialogState::WaitingEmergencyText)
             })
             .endpoint(update_emergency_info),
+        )
+        .branch(
+            dptree::filter(|state: BotDialogState| {
+                matches!(state, BotDialogState::WaitingForInvite)
+            })
+            .endpoint(accept_invite),
         )
         .endpoint(|bot: Bot, message: Message| async move {
             bot.send_message(message.chat.id, "Unknown command!")
