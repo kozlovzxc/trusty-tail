@@ -46,8 +46,33 @@ type BotDialogue = Dialogue<BotDialogState, InMemStorage<BotDialogState>>;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
-async fn print_start_info(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
+async fn print_start_info(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+    connection: DatabaseConnection,
+) -> HandlerResult {
     dialogue.exit().await?;
+
+    let username = message
+        .from()
+        .and_then(|user| user.username.clone())
+        .unwrap_or("Unknown".to_string());
+
+    let new_profile = profiles::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        username: ActiveValue::Set(username),
+        ..Default::default()
+    };
+    profiles::Entity::insert(new_profile)
+        .on_conflict(
+            OnConflict::column(profiles::Column::ChatId)
+                .update_column(profiles::Column::Username)
+                .to_owned(),
+        )
+        .exec(&connection)
+        .await?;
+
     bot.send_message(message.chat.id, "Start!").await?;
     Ok(())
 }
@@ -300,25 +325,6 @@ async fn accept_invite(
     })
     .exec(&connection)
     .await?;
-
-    let username = message
-        .from()
-        .and_then(|user| user.username.clone())
-        .unwrap_or("Unknown".to_string());
-
-    let new_profile = profiles::ActiveModel {
-        chat_id: ActiveValue::Set(message.chat.id.0),
-        username: ActiveValue::Set(username),
-        ..Default::default()
-    };
-    profiles::Entity::insert(new_profile)
-        .on_conflict(
-            OnConflict::column(profiles::Column::ChatId)
-                .update_column(profiles::Column::Username)
-                .to_owned(),
-        )
-        .exec(&connection)
-        .await?;
 
     bot.send_message(message.chat.id, "Accepted!").await?;
     Ok(())
