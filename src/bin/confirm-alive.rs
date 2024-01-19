@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         for status in statuses {
             bot.send_message(
                 ChatId(status.chat_id),
-                "Please confirm that you are alive by using\n/alive",
+                "Please confirm that you are ok by using\n/im_ok",
             )
             .await?;
         }

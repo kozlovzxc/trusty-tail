@@ -23,12 +23,12 @@ use teloxide::{prelude::*, utils::command::BotCommands};
 enum Command {
     Start,
     Help,
-    UpdateEmergencyText,
+    SetEmergencyText,
     GetEmergencyText,
-    Alive,
-    Enable,
-    Disable,
-    Status,
+    ImOk,
+    EnableMonitoring,
+    DisableMonitoring,
+    GetMonitoring,
     GetInvite,
     AcceptInvite,
     GetSecondaryOwners,
@@ -72,7 +72,7 @@ async fn ask_for_emergency_info(
     Ok(())
 }
 
-async fn update_emergency_info(
+async fn set_emergency_info(
     bot: Bot,
     message: Message,
     dialogue: BotDialogue,
@@ -121,7 +121,7 @@ async fn get_emergency_info(
     Ok(())
 }
 
-async fn mark_alive(
+async fn im_ok(
     bot: Bot,
     message: Message,
     dialogue: BotDialogue,
@@ -147,7 +147,7 @@ async fn mark_alive(
     Ok(())
 }
 
-async fn enable(
+async fn enable_monitoring(
     bot: Bot,
     message: Message,
     dialogue: BotDialogue,
@@ -172,7 +172,7 @@ async fn enable(
     Ok(())
 }
 
-async fn disable(
+async fn disable_monitoring(
     bot: Bot,
     message: Message,
     dialogue: BotDialogue,
@@ -197,7 +197,7 @@ async fn disable(
     Ok(())
 }
 
-async fn get_status(
+async fn get_monitoring(
     bot: Bot,
     message: Message,
     dialogue: BotDialogue,
@@ -391,22 +391,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .endpoint(print_help_info),
         )
         .branch(
-            dptree::filter(|command| matches!(command, Some(Command::UpdateEmergencyText)))
+            dptree::filter(|command| matches!(command, Some(Command::SetEmergencyText)))
                 .endpoint(ask_for_emergency_info),
         )
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::GetEmergencyText)))
                 .endpoint(get_emergency_info),
         )
+        .branch(dptree::filter(|command| matches!(command, Some(Command::ImOk))).endpoint(im_ok))
         .branch(
-            dptree::filter(|command| matches!(command, Some(Command::Alive))).endpoint(mark_alive),
-        )
-        .branch(dptree::filter(|command| matches!(command, Some(Command::Enable))).endpoint(enable))
-        .branch(
-            dptree::filter(|command| matches!(command, Some(Command::Disable))).endpoint(disable),
+            dptree::filter(|command| matches!(command, Some(Command::EnableMonitoring)))
+                .endpoint(enable_monitoring),
         )
         .branch(
-            dptree::filter(|command| matches!(command, Some(Command::Status))).endpoint(get_status),
+            dptree::filter(|command| matches!(command, Some(Command::DisableMonitoring)))
+                .endpoint(disable_monitoring),
+        )
+        .branch(
+            dptree::filter(|command| matches!(command, Some(Command::GetMonitoring)))
+                .endpoint(get_monitoring),
         )
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::GetInvite)))
@@ -425,7 +428,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             dptree::filter(|state: BotDialogState| {
                 matches!(state, BotDialogState::WaitingEmergencyText)
             })
-            .endpoint(update_emergency_info),
+            .endpoint(set_emergency_info),
         )
         .branch(
             dptree::filter(|state: BotDialogState| {
