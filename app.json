@@ -2,7 +2,7 @@
   "cron": [
     {
       "command": "cargo run --bin confirm-alive",
-      "schedule": "@hourly"
+      "schedule": "0 */12 * * *"
     }
   ]
 }
