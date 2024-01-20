@@ -22,3 +22,4 @@ entity = { path = "./entity" }
 migration = { path = "./migration" }
 chrono = "0.4.31"
 rand = "0.8.5"
+sentry = "0.32.1"

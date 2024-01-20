@@ -22,15 +22,25 @@ use teloxide::{prelude::*, utils::command::BotCommands};
 )]
 enum Command {
     Start,
+    #[command(description = "display this text.")]
     Help,
+    #[command(description = "set emergency text")]
     SetEmergencyText,
+    #[command(description = "get emergency text")]
     GetEmergencyText,
+    #[command(description = "mark that you are ok")]
     ImOk,
+    #[command(description = "enable monitoring")]
     EnableMonitoring,
+    #[command(description = "disable monitoring")]
     DisableMonitoring,
+    #[command(description = "get monitoring status")]
     GetMonitoring,
+    #[command(description = "get invite code")]
     GetInvite,
+    #[command(description = "accept invite code")]
     AcceptInvite,
+    #[command(description = "get secondary owners")]
     GetSecondaryOwners,
 }
 
@@ -367,6 +377,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     log::info!("Starting...");
     let config = Config::init();
     log::info!("Initialized config...");
+
+    let _guard = sentry::init((
+        config.sentry_url,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            ..Default::default()
+        },
+    ));
+
     let database_full_url = format!(
         "postgres://{}:{}@{}/{}",
         config.db_user, config.db_password, config.db_url, config.db_name
@@ -377,7 +396,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Migrator::up(&connection, None).await?;
     assert!(schema_manager.has_table("emergency_info").await?);
     log::info!("Applied migrations...");
-
     let bot = Bot::from_env();
 
     let handler = Update::filter_message()
