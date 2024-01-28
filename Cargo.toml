@@ -7,9 +7,6 @@ default-run = "trusty-tail"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[workspace]
-members = [".", "entity", "migration"]
-
 [dependencies]
 teloxide = { version = "0.12", features = ["macros"] }
 log = "0.4"
@@ -18,8 +15,6 @@ tokio = { version =  "1.8", features = ["rt-multi-thread", "macros"] }
 sea-orm = { version = "0.12", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 sea-orm-cli = "0.12"
 sea-orm-migration = "0.12"
-entity = { path = "./entity" }
-migration = { path = "./migration" }
 chrono = "0.4.31"
 rand = "0.8.5"
 sentry = "0.32.1"

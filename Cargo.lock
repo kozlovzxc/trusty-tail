@@ -837,13 +837,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "entity"
-version = "0.1.0"
-dependencies = [
- "sea-orm",
-]
-
-[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1589,14 +1582,6 @@ name = "memchr"
 version = "2.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
-
-[[package]]
-name = "migration"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "sea-orm-migration",
-]
 
 [[package]]
 name = "mime"
@@ -3576,9 +3561,7 @@ name = "trusty-tail"
 version = "0.1.1"
 dependencies = [
  "chrono",
- "entity",
  "log",
- "migration",
  "pretty_env_logger",
  "rand",
  "sea-orm",

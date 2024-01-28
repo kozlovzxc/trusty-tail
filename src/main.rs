@@ -2,8 +2,6 @@ mod config;
 
 use chrono::Utc;
 use config::Config;
-use entity::*;
-use migration::Migrator;
 use rand::{distributions::Alphanumeric, Rng};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait,
@@ -14,6 +12,8 @@ use std::error::Error;
 use std::fmt::Debug;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::{prelude::*, utils::command::BotCommands};
+use trusty_tail::entity::*;
+use trusty_tail::migration::Migrator;
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
 #[command(
