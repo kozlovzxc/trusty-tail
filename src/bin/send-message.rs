@@ -1,4 +1,3 @@
-use entity::profiles;
 use sea_orm::{Database, EntityTrait, PaginatorTrait};
 use std::{
     error::Error,
@@ -6,6 +5,7 @@ use std::{
 };
 use teloxide::{requests::Requester, types::ChatId, Bot};
 use trusty_tail::config::Config;
+use trusty_tail::entity::profiles;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

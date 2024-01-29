@@ -1,7 +1,4 @@
-mod config;
-
 use chrono::Utc;
-use config::Config;
 use rand::{distributions::Alphanumeric, Rng};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait,
@@ -11,36 +8,36 @@ use sea_orm_migration::prelude::*;
 use std::error::Error;
 use std::fmt::Debug;
 use teloxide::dispatching::dialogue::InMemStorage;
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::prelude::*;
+use teloxide::types::ParseMode;
+use teloxide::utils::command::BotCommands;
+use trusty_tail::config::Config;
 use trusty_tail::entity::*;
 use trusty_tail::migration::Migrator;
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
-#[command(
-    rename_rule = "snake_case",
-    description = "These commands are supported:"
-)]
+#[command(rename_rule = "snake_case", description = "Поддерживаются команды:")]
 enum Command {
     Start,
-    #[command(description = "display this text.")]
+    #[command(description = "Показать доступные команды")]
     Help,
-    #[command(description = "set emergency text")]
+    #[command(description = "Обновить текст на экстренный случай")]
     SetEmergencyText,
-    #[command(description = "get emergency text")]
+    #[command(description = "Показать текст на экстренный случай")]
     GetEmergencyText,
-    #[command(description = "mark that you are ok")]
+    #[command(description = "Отметиться, что все хорошо")]
     ImOk,
-    #[command(description = "enable monitoring")]
+    #[command(description = "Включить мониторинг")]
     EnableMonitoring,
-    #[command(description = "disable monitoring")]
+    #[command(description = "Выключить мониторинг")]
     DisableMonitoring,
-    #[command(description = "get monitoring status")]
+    #[command(description = "Получить статус мониторинга")]
     GetMonitoring,
-    #[command(description = "get invite code")]
+    #[command(description = "Получить код для приглашения экстренного контакта")]
     GetInvite,
-    #[command(description = "accept invite code")]
+    #[command(description = "Принять приглашение экстренного контакта")]
     AcceptInvite,
-    #[command(description = "get secondary owners")]
+    #[command(description = "Показать экстренные контакты")]
     GetSecondaryOwners,
 }
 
@@ -69,21 +66,30 @@ async fn print_start_info(
         .and_then(|user| user.username.clone())
         .unwrap_or("Unknown".to_string());
 
-    let new_profile = profiles::ActiveModel {
+    profiles::Entity::insert(profiles::ActiveModel {
         chat_id: ActiveValue::Set(message.chat.id.0),
         username: ActiveValue::Set(username),
         ..Default::default()
-    };
-    profiles::Entity::insert(new_profile)
-        .on_conflict(
-            OnConflict::column(profiles::Column::ChatId)
-                .update_column(profiles::Column::Username)
-                .to_owned(),
-        )
-        .exec(&connection)
-        .await?;
+    })
+    .on_conflict(
+        OnConflict::column(profiles::Column::ChatId)
+            .update_column(profiles::Column::Username)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await?;
 
-    bot.send_message(message.chat.id, "Start!").await?;
+    bot.parse_mode(ParseMode::Html).send_message(message.chat.id, "Привет 👋 Этот бот создан для заботы о питомцах, если с основным владельцем что-то случилось. 
+    
+<strong>Для владельцев питомцев:</strong>
+Время от времени, бот будет просить подтвердить, что с вами все в порядке. Если вы не сможете ответить 3 дня, то мы оповестим ваши резервные контакты.
+
+Для того, чтобы бот начал работать, задайте текст на экстренный случай с помощью команды /set_emergency_text и пригласите резервные контакты с помощью /get_invite.
+
+<strong>Для резервных контактов:</strong>
+Вам нужно лишь принять приглашение от владельца питомца с помощью команды /accept_invite. В случае, если владелец питомца не отвечает на запросы бота, вы получите уведомление.
+
+Таким образом, за питомцем всегда присмотрят 🐶").await?;
     Ok(())
 }
 
@@ -102,7 +108,21 @@ async fn ask_for_emergency_info(
     dialogue
         .update(BotDialogState::WaitingEmergencyText)
         .await?;
-    bot.send_message(message.chat.id, "Input your emergency text!")
+    bot.send_message(message.chat.id, "Эта команда поможет вам настроить текст экстренного сообщения, который будет отправлен вашему резервному контакту, если вы не отвечаете в течение нескольких дней. Это важно, чтобы кто-то мог позаботиться о вашем питомце, если с вами что-то случится.
+
+Пожалуйста, предоставьте следующую информацию:
+
+1️⃣ Доступ к вашему дому: Как ваш резервный контакт может попасть в ваш дом, чтобы заботиться о вашем питомце? Это может быть телефон родственника, арендодателя или информация о ключе.
+
+2️⃣ Документы на питомца: Где ваш резервный контакт может найти все необходимые документы на вашего питомца?
+
+3️⃣ Здоровье питомца: Есть ли у вашего питомца какие-либо заболевания или особые потребности в уходе, о которых должен знать ваш резервный контакт?
+
+4️⃣ Рекомендованная диета: Какую еду предпочитает ваш питомец и есть ли у него какие-либо диетические ограничения?
+
+5️⃣ Особые инструкции: Есть ли какие-либо особые инструкции по уходу за вашим питомцем, которые должен знать ваш резервный контакт? Это может включать в себя информацию о прогулках, любимых игрушках, способах успокоения и т.д.
+
+6️⃣ Ветеринар: Контактные данные вашего ветеринара, на случай, если питомцу потребуется медицинская помощь.")
         .await?;
     Ok(())
 }
@@ -128,7 +148,8 @@ async fn set_emergency_info(
         .exec(&connection)
         .await?;
 
-    bot.send_message(message.chat.id, "Updated!").await?;
+    bot.send_message(message.chat.id, "Текст на экстренный случай обновлен")
+        .await?;
     Ok(())
 }
 
@@ -149,7 +170,7 @@ async fn get_emergency_info(
                 .await?;
         }
         None => {
-            bot.send_message(message.chat.id, "There is no saved emergency info")
+            bot.send_message(message.chat.id, "Не нашел текст на экстренный случай 🤷")
                 .await?;
         }
     }
@@ -177,7 +198,7 @@ async fn im_ok(
     .exec(&connection)
     .await?;
 
-    bot.send_message(message.chat.id, "Marked as alive!")
+    bot.send_message(message.chat.id, "Хорошего дня, все отметили")
         .await?;
     Ok(())
 }
@@ -203,7 +224,8 @@ async fn enable_monitoring(
     .exec(&connection)
     .await?;
 
-    bot.send_message(message.chat.id, "Enabled!").await?;
+    bot.send_message(message.chat.id, "Мониторинг включен")
+        .await?;
     Ok(())
 }
 
@@ -228,7 +250,8 @@ async fn disable_monitoring(
     .exec(&connection)
     .await?;
 
-    bot.send_message(message.chat.id, "Disabled!").await?;
+    bot.send_message(message.chat.id, "Мониторинг выключен")
+        .await?;
     Ok(())
 }
 
@@ -249,12 +272,19 @@ async fn get_monitoring(
         Some(monitoring_status) => {
             bot.send_message(
                 message.chat.id,
-                format!("Monitoring status: {}", monitoring_status.enabled),
+                format!(
+                    "Статус мониторинга: {}",
+                    if monitoring_status.enabled {
+                        "Включен"
+                    } else {
+                        "Выключен"
+                    }
+                ),
             )
             .await?;
         }
         None => {
-            bot.send_message(message.chat.id, "Monitoring is not set")
+            bot.send_message(message.chat.id, "Мониторинг не задан")
                 .await?;
         }
     }
@@ -300,7 +330,7 @@ async fn get_invite_code(
 async fn ask_for_invite(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
     dialogue.update(BotDialogState::WaitingForInvite).await?;
 
-    bot.send_message(message.chat.id, "Please enter invite code.")
+    bot.send_message(message.chat.id, "Пожалуйста введите код приглашения.")
         .await?;
     Ok(())
 }
@@ -322,7 +352,7 @@ async fn accept_invite(
         .flatten();
 
     if invite.is_none() {
-        bot.send_message(message.chat.id, "Invalid invite code.")
+        bot.send_message(message.chat.id, "Неизвестный код приглашения.")
             .await?;
         return Ok(());
     }
@@ -336,7 +366,7 @@ async fn accept_invite(
     .exec(&connection)
     .await?;
 
-    bot.send_message(message.chat.id, "Accepted!").await?;
+    bot.send_message(message.chat.id, "Принято!").await?;
     Ok(())
 }
 
@@ -360,14 +390,19 @@ async fn get_secondary_owners(
         .all(&connection)
         .await?;
 
-    let formatted_profiles = profiles
-        .iter()
-        .map(|profile| format!("@{}", profile.username.clone()))
-        .collect::<Vec<_>>()
-        .join("\n");
+    if profiles.is_empty() {
+        bot.send_message(message.chat.id, "Нет резервных контактов")
+            .await?;
+    } else {
+        let formatted_profiles = profiles
+            .iter()
+            .map(|profile| format!("@{}", profile.username.clone()))
+            .collect::<Vec<_>>()
+            .join("\n");
 
-    bot.send_message(message.chat.id, formatted_profiles)
-        .await?;
+        bot.send_message(message.chat.id, formatted_profiles)
+            .await?;
+    }
     Ok(())
 }
 

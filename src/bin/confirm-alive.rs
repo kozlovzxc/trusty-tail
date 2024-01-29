@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use entity::{alive_events, monitoring_statuses};
 use sea_orm::{
     ColumnTrait, Database, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
     QuerySelect,
@@ -7,6 +6,7 @@ use sea_orm::{
 use std::error::Error;
 use teloxide::{requests::Requester, types::ChatId, Bot};
 use trusty_tail::config::Config;
+use trusty_tail::entity::{alive_events, monitoring_statuses};
 
 #[derive(Debug, FromQueryResult, Clone, PartialEq)]
 pub struct MonitoringStatusesAliveJoin {
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         for status in statuses {
             bot.send_message(
                 ChatId(status.chat_id),
-                "Please confirm that you are ok by using\n/im_ok",
+                "Пожалуйста подтвердите, что с вами все хорошо с помощью команды /im_ok",
             )
             .await?;
         }
