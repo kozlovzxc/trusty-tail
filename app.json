@@ -3,6 +3,10 @@
     {
       "command": "cargo run --bin confirm-alive",
       "schedule": "0 */12 * * *"
+    },
+    {
+      "command": "cargo run --bin send-alerts",
+      "schedule": "0 */12 * * *"
     }
   ]
 }

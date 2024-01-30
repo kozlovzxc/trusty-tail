@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .filter(
             alive_events::Column::Timestamp
-                .lt(chrono::Utc::now().naive_utc() - chrono::Duration::days(3)),
+                .lt(chrono::Utc::now().naive_utc() - chrono::Duration::days(1)),
         )
         .into_model::<MonitoringStatusesAliveJoin>()
         .paginate(&connection, 50);
