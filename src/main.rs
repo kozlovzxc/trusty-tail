@@ -53,34 +53,8 @@ type BotDialogue = Dialogue<BotDialogState, InMemStorage<BotDialogState>>;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
-async fn print_start_info(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-    connection: DatabaseConnection,
-) -> HandlerResult {
-    dialogue.exit().await?;
+const COMMAND_START_TEMPLATE: &str = "Привет 👋 Этот бот создан для заботы о питомцах, если с основным владельцем что-то случилось.
 
-    let username = message
-        .from()
-        .and_then(|user| user.username.clone())
-        .unwrap_or("Unknown".to_string());
-
-    profiles::Entity::insert(profiles::ActiveModel {
-        chat_id: ActiveValue::Set(message.chat.id.0),
-        username: ActiveValue::Set(username),
-        ..Default::default()
-    })
-    .on_conflict(
-        OnConflict::column(profiles::Column::ChatId)
-            .update_column(profiles::Column::Username)
-            .to_owned(),
-    )
-    .exec(&connection)
-    .await?;
-
-    bot.parse_mode(ParseMode::Html).send_message(message.chat.id, "Привет 👋 Этот бот создан для заботы о питомцах, если с основным владельцем что-то случилось. 
-    
 <strong>Для владельцев питомцев:</strong>
 Время от времени, бот будет просить подтвердить, что с вами все в порядке. Если вы не сможете ответить несколько дней подряд, то мы оповестим ваши резервные контакты.
 
@@ -89,7 +63,15 @@ async fn print_start_info(
 <strong>Для резервных контактов:</strong>
 Вам нужно лишь принять приглашение от владельца питомца с помощью команды /accept_invite. В случае, если владелец питомца не отвечает на запросы бота, вы получите уведомление.
 
-Таким образом, за питомцем всегда присмотрят 🐶").await?;
+Таким образом, за питомцем всегда присмотрят 🐶";
+
+async fn print_start_info(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
+    dialogue.exit().await?;
+
+    bot.parse_mode(ParseMode::Html)
+        .send_message(message.chat.id, COMMAND_START_TEMPLATE)
+        .await?;
+
     Ok(())
 }
 
@@ -100,15 +82,7 @@ async fn print_help_info(bot: Bot, message: Message, dialogue: BotDialogue) -> H
     Ok(())
 }
 
-async fn ask_for_emergency_info(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-) -> HandlerResult {
-    dialogue
-        .update(BotDialogState::WaitingEmergencyText)
-        .await?;
-    bot.send_message(message.chat.id, "Эта команда поможет вам настроить текст экстренного сообщения, который будет отправлен вашему резервному контакту, если вы не отвечаете в течение нескольких дней. Это важно, чтобы кто-то мог позаботиться о вашем питомце, если с вами что-то случится.
+const COMMAND_ASK_FOR_INFO_TEMPLATE: &str = "Эта команда поможет вам настроить текст экстренного сообщения, который будет отправлен вашему резервному контакту, если вы не отвечаете в течение нескольких дней. Это важно, чтобы кто-то мог позаботиться о вашем питомце, если с вами что-то случится.
 
 Пожалуйста, предоставьте следующую информацию:
 
@@ -122,7 +96,17 @@ async fn ask_for_emergency_info(
 
 5️⃣ Особые инструкции: Есть ли какие-либо особые инструкции по уходу за вашим питомцем, которые должен знать ваш резервный контакт? Это может включать в себя информацию о прогулках, любимых игрушках, способах успокоения и т.д.
 
-6️⃣ Ветеринар: Контактные данные вашего ветеринара, на случай, если питомцу потребуется медицинская помощь.")
+6️⃣ Ветеринар: Контактные данные вашего ветеринара, на случай, если питомцу потребуется медицинская помощь.";
+
+async fn ask_for_emergency_info(
+    bot: Bot,
+    message: Message,
+    dialogue: BotDialogue,
+) -> HandlerResult {
+    dialogue
+        .update(BotDialogState::WaitingEmergencyText)
+        .await?;
+    bot.send_message(message.chat.id, COMMAND_ASK_FOR_INFO_TEMPLATE)
         .await?;
     Ok(())
 }
@@ -177,27 +161,8 @@ async fn get_emergency_info(
     Ok(())
 }
 
-async fn im_ok(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-    connection: DatabaseConnection,
-) -> HandlerResult {
+async fn im_ok(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
     dialogue.exit().await?;
-
-    alive_events::Entity::insert(alive_events::ActiveModel {
-        chat_id: ActiveValue::Set(message.chat.id.0),
-        timestamp: ActiveValue::Set(Utc::now().naive_utc()),
-        ..Default::default()
-    })
-    .on_conflict(
-        OnConflict::column(alive_events::Column::ChatId)
-            .update_column(alive_events::Column::Timestamp)
-            .to_owned(),
-    )
-    .exec(&connection)
-    .await?;
-
     bot.send_message(message.chat.id, "Хорошего дня, все отметили")
         .await?;
     Ok(())
@@ -329,7 +294,6 @@ async fn get_invite_code(
 
 async fn ask_for_invite(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
     dialogue.update(BotDialogState::WaitingForInvite).await?;
-
     bot.send_message(message.chat.id, "Пожалуйста введите код приглашения.")
         .await?;
     Ok(())
@@ -406,6 +370,43 @@ async fn get_secondary_owners(
     Ok(())
 }
 
+async fn mark_alive(message: Message, connection: DatabaseConnection) {
+    let _ = alive_events::Entity::insert(alive_events::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        timestamp: ActiveValue::Set(Utc::now().naive_utc()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(alive_events::Column::ChatId)
+            .update_column(alive_events::Column::Timestamp)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await
+    .unwrap();
+}
+
+async fn update_profile(message: Message, connection: DatabaseConnection) {
+    let username = message
+        .from()
+        .and_then(|user| user.username.clone())
+        .unwrap_or("Unknown".to_string());
+
+    let _ = profiles::Entity::insert(profiles::ActiveModel {
+        chat_id: ActiveValue::Set(message.chat.id.0),
+        username: ActiveValue::Set(username),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(profiles::Column::ChatId)
+            .update_column(profiles::Column::Username)
+            .to_owned(),
+    )
+    .exec(&connection)
+    .await
+    .unwrap();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
@@ -440,6 +441,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Command::parse(&text, "").ok()
         })
         .map_async(|dialogue: BotDialogue| async move { dialogue.get().await.ok().flatten() })
+        // Middleware
+        .inspect_async(mark_alive)
+        .inspect_async(update_profile)
         // Commands
         .branch(
             dptree::filter(|command| matches!(command, Some(Command::Start)))
