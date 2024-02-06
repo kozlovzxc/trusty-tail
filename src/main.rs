@@ -1,10 +1,10 @@
 use chrono::Utc;
 use rand::{distributions::Alphanumeric, Rng};
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait,
-    JoinType, QueryFilter, QuerySelect,
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
+    QueryFilter, QuerySelect,
 };
-use sea_orm_migration::prelude::*;
 use std::error::Error;
 use std::fmt::Debug;
 use teloxide::dispatching::dialogue::InMemStorage;
@@ -12,8 +12,7 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use teloxide::utils::command::BotCommands;
 use trusty_tail::config::Config;
-use trusty_tail::entity::*;
-use trusty_tail::migration::Migrator;
+use trusty_tail::{connection, entity::*};
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
 #[command(rename_rule = "snake_case", description = "Поддерживаются команды:")]
@@ -412,7 +411,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
     log::info!("Starting...");
     let config = Config::init();
-    log::info!("Initialized config...");
 
     let _guard = sentry::init((
         config.sentry_url,
@@ -422,16 +420,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
     ));
 
-    let database_full_url = format!(
-        "postgres://{}:{}@{}/{}",
-        config.db_user, config.db_password, config.db_url, config.db_name
-    );
-    let connection = Database::connect(database_full_url).await?;
-    log::info!("Connected to database...");
-    let schema_manager = SchemaManager::new(&connection);
-    Migrator::up(&connection, None).await?;
-    assert!(schema_manager.has_table("emergency_info").await?);
-    log::info!("Applied migrations...");
+    let connection = connection::init().await?;
+
     let bot = Bot::from_env();
 
     let handler = Update::filter_message()

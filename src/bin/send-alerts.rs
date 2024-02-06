@@ -1,12 +1,14 @@
 use chrono::NaiveDateTime;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, Database, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
-    QuerySelect,
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QuerySelect,
 };
 use std::error::Error;
 use teloxide::{requests::Requester, types::ChatId, Bot};
-use trusty_tail::config::Config;
-use trusty_tail::entity::{alive_events, emergency_info, monitoring_statuses, secondary_owners};
+use trusty_tail::connection;
+use trusty_tail::entity::{
+    alive_events, emergency_info, monitoring_statuses, profiles, secondary_owners,
+};
 
 #[derive(Debug, FromQueryResult, Clone, PartialEq)]
 pub struct MonitoringStatusesAliveJoin {
@@ -19,18 +21,13 @@ pub struct MonitoringStatusesAliveJoin {
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
     log::info!("Starting...");
-    let config = Config::init();
-    log::info!("Initialized config...");
-    let database_full_url = format!(
-        "postgres://{}:{}@{}/{}",
-        config.db_user, config.db_password, config.db_url, config.db_name
-    );
-    let connection = Database::connect(database_full_url).await?;
-    log::info!("Connected to database...");
+
+    let connection = connection::init().await?;
     let bot = Bot::from_env();
 
     log::info!("Checking statuses...");
     let mut statuses_pages = monitoring_statuses::Entity::find()
+        .filter(monitoring_statuses::Column::Enabled.eq(true))
         .column_as(alive_events::Column::Timestamp, "timestamp")
         .join_rev(
             JoinType::InnerJoin,
@@ -54,6 +51,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .await?;
             let alert_text = info.clone().map(|x| x.text).unwrap_or("---".to_string());
 
+            bot.send_message(
+                ChatId(status.chat_id),
+                "🚨 Высылаем текст на экстренный случай всем запасным владельцам питомца, а пока ставим бота на паузу, чтобы включить его снова воспользуйтесь командой /enable_monitoring"
+            ).await?;
+
+            monitoring_statuses::Entity::update_many()
+                .col_expr(monitoring_statuses::Column::Enabled, Expr::value(false))
+                .filter(monitoring_statuses::Column::ChatId.eq(status.chat_id))
+                .exec(&connection)
+                .await?;
+
+            let username = profiles::Entity::find()
+                .filter(profiles::Column::ChatId.eq(status.chat_id))
+                .one(&connection)
+                .await?
+                .map_or_else(
+                    || "Владелец питомца".to_owned(),
+                    |x| format!("@{}", x.username),
+                );
+
             let recipents = secondary_owners::Entity::find()
                 .filter(secondary_owners::Column::PrimaryOwnerChatId.eq(status.chat_id))
                 .into_model::<secondary_owners::Model>()
@@ -65,7 +82,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 bot.send_message(
                     ChatId(recipient.secondary_owner_chat_id),
                     format!(
-                        "Владелец питомца не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что с ним и с его животным все в порядке. Вот текст на экстренный случай:\n\n{}",
+                        "🚨 {} не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что с ним и с его животным все в порядке. Вот текст на экстренный случай:\n\n{}", 
+                        username,
                         alert_text
                     )
                 )
