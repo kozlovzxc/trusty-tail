@@ -10,9 +10,13 @@ use teloxide::dispatching::dialogue::{GetChatId, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 use tera::Tera;
-use trusty_tail::commands::disable::disable_monitoring;
-use trusty_tail::commands::enable::enable_monitoring;
-use trusty_tail::commands::start::start_command;
+use trusty_tail::commands::emergency_info::{
+    ask_for_emergency_info, set_emergency_info, show_emergency_info,
+};
+use trusty_tail::commands::invites::{accept_invite, ask_for_invite};
+use trusty_tail::commands::menu::show_menu;
+use trusty_tail::commands::start::show_start_info;
+use trusty_tail::commands::status::{disable_monitoring, enable_monitoring};
 use trusty_tail::config::Config;
 use trusty_tail::types::{BotDialogState, BotDialogue};
 use trusty_tail::{connection, entity::*};
@@ -22,24 +26,7 @@ use trusty_tail::{connection, entity::*};
 enum MessageCommand {
     Start,
     Menu,
-    #[command(description = "Показать доступные команды")]
-    SetEmergencyText,
-    #[command(description = "Показать текст на экстренный случай")]
-    GetEmergencyText,
-    #[command(description = "Отметиться, что все хорошо")]
     ImOk,
-    #[command(description = "Включить мониторинг")]
-    EnableMonitoring,
-    #[command(description = "Выключить мониторинг")]
-    DisableMonitoring,
-    #[command(description = "Получить статус мониторинга")]
-    GetMonitoring,
-    #[command(description = "Получить код для приглашения экстренного контакта")]
-    GetInvite,
-    #[command(description = "Принять приглашение экстренного контакта")]
-    AcceptInvite,
-    #[command(description = "Показать экстренные контакты")]
-    GetSecondaryOwners,
 }
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
@@ -47,76 +34,13 @@ enum MessageCommand {
 enum CallbackCommand {
     Enable,
     Disable,
+    EmergencyInfo,
+    AskForEmergencyInfo,
+    MainMenu,
+    AskForInvite,
 }
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
-
-async fn ask_for_emergency_info(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-    tera: Tera,
-) -> HandlerResult {
-    dialogue
-        .update(BotDialogState::WaitingEmergencyText)
-        .await?;
-
-    let context = tera::Context::new();
-    let answer = tera.render("emergency_info_fill.html", &context).unwrap();
-
-    bot.send_message(message.chat.id, answer).await?;
-    Ok(())
-}
-
-async fn set_emergency_info(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-    connection: DatabaseConnection,
-) -> HandlerResult {
-    dialogue.exit().await?;
-    let new_emergency_info = emergency_info::ActiveModel {
-        text: ActiveValue::Set(message.text().unwrap_or("").to_string()),
-        chat_id: ActiveValue::Set(message.chat.id.0),
-        ..Default::default()
-    };
-    emergency_info::Entity::insert(new_emergency_info)
-        .on_conflict(
-            OnConflict::column(emergency_info::Column::ChatId)
-                .update_column(emergency_info::Column::Text)
-                .to_owned(),
-        )
-        .exec(&connection)
-        .await?;
-
-    bot.send_message(message.chat.id, "Текст на экстренный случай обновлен")
-        .await?;
-    Ok(())
-}
-
-async fn get_emergency_info(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
-    connection: DatabaseConnection,
-) -> HandlerResult {
-    dialogue.exit().await?;
-    let emergency_info = emergency_info::Entity::find()
-        .filter(emergency_info::Column::ChatId.eq(message.chat.id.0))
-        .one(&connection)
-        .await?;
-    match emergency_info {
-        Some(emergency_info) => {
-            bot.send_message(message.chat.id, emergency_info.text)
-                .await?;
-        }
-        None => {
-            bot.send_message(message.chat.id, "Не нашел текст на экстренный случай 🤷")
-                .await?;
-        }
-    }
-    Ok(())
-}
 
 async fn get_invite_code(
     bot: Bot,
@@ -151,45 +75,6 @@ async fn get_invite_code(
 
     bot.send_message(message.chat.id, invite.invite).await?;
     Ok(())
-}
-
-async fn ask_for_invite(bot: Bot, message: Message, dialogue: BotDialogue) -> HandlerResult {
-    dialogue.update(BotDialogState::WaitingForInvite).await?;
-    bot.send_message(message.chat.id, "Пожалуйста введите код приглашения.")
-        .await?;
-    Ok(())
-}
-
-async fn accept_invite(
-    bot: &Bot,
-    message: &Message,
-    connection: &DatabaseConnection,
-) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
-    let invite_code = message.text().unwrap_or("").to_string();
-    let invite = invites::Entity::find()
-        .filter(invites::Column::Invite.eq(invite_code))
-        .one(connection)
-        .await
-        .ok()
-        .flatten();
-
-    if invite.is_none() {
-        bot.send_message(message.chat.id, "Неизвестный код приглашения.")
-            .await?;
-        return Ok(None);
-    }
-    let invite = invite.unwrap();
-
-    secondary_owners::Entity::insert(secondary_owners::ActiveModel {
-        primary_owner_chat_id: ActiveValue::Set(invite.chat_id),
-        secondary_owner_chat_id: ActiveValue::Set(message.chat.id.0),
-        ..Default::default()
-    })
-    .exec(connection)
-    .await?;
-
-    bot.send_message(message.chat.id, "Принято!").await?;
-    Ok(None)
 }
 
 async fn get_secondary_owners(
@@ -228,7 +113,7 @@ async fn get_secondary_owners(
     Ok(())
 }
 
-async fn mark_alive(message: Message, connection: DatabaseConnection) {
+async fn mark_alive_middleware(message: Message, connection: DatabaseConnection) {
     let _ = alive_events::Entity::insert(alive_events::ActiveModel {
         chat_id: ActiveValue::Set(message.chat.id.0),
         timestamp: ActiveValue::Set(Utc::now().naive_utc()),
@@ -244,7 +129,7 @@ async fn mark_alive(message: Message, connection: DatabaseConnection) {
     .unwrap();
 }
 
-async fn update_profile(message: Message, connection: DatabaseConnection) {
+async fn update_profile_middleware(message: Message, connection: DatabaseConnection) {
     let username = message
         .from()
         .and_then(|user| user.username.clone())
@@ -268,7 +153,9 @@ async fn update_profile(message: Message, connection: DatabaseConnection) {
 async fn callback_handler(
     bot: Bot,
     query: CallbackQuery,
+    dialogue: BotDialogue,
     connection: DatabaseConnection,
+    tera: Tera,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let chat_id = match query.chat_id() {
         Some(chat_id) => chat_id,
@@ -286,17 +173,35 @@ async fn callback_handler(
         .flatten()
     {
         Some(command) => command,
-        None => return Err("Unknown command".into()),
+        None => {
+            bot.send_message(chat_id, "Команда не найдена").await?;
+            show_menu(&bot, chat_id, &connection, &tera).await?;
+            return Err("Unknown command".into());
+        }
     };
 
-    match command {
+    let next_state = match command {
         CallbackCommand::Enable => {
             enable_monitoring(&bot, chat_id, message_id, &connection).await?
         }
         CallbackCommand::Disable => {
             disable_monitoring(&bot, chat_id, message_id, &connection).await?
         }
-        _ => (),
+        CallbackCommand::EmergencyInfo => {
+            show_emergency_info(&bot, chat_id, &connection, &tera).await?
+        }
+        CallbackCommand::AskForEmergencyInfo => {
+            ask_for_emergency_info(&bot, chat_id, &tera).await?
+        }
+        CallbackCommand::MainMenu => show_menu(&bot, chat_id, &connection, &tera).await?,
+        CallbackCommand::AskForInvite => ask_for_invite(&bot, chat_id).await?,
+    };
+
+    // Update state
+    if let Some(next_state) = next_state {
+        dialogue.update(next_state).await?;
+    } else {
+        dialogue.exit().await?;
     }
 
     Ok(())
@@ -315,19 +220,31 @@ async fn message_handler(
     // Match command first
     let next_state = if let Some(command) = command {
         match command {
-            MessageCommand::Start => start_command(&bot, &message, &tera, &connection).await?,
+            MessageCommand::Start => {
+                show_start_info(&bot, &message, &tera).await?;
+                show_menu(&bot, message.chat.id, &connection, &tera).await?
+            }
+            MessageCommand::Menu => show_menu(&bot, message.chat.id, &connection, &tera).await?,
             _ => None,
         }
     // Match state second
     } else if let Some(state) = dialogue.get().await.ok().flatten() {
         match state {
-            BotDialogState::WaitingForInvite => accept_invite(&bot, &message, &connection).await?,
-            _ => None,
+            BotDialogState::WaitingEmergencyText => {
+                set_emergency_info(&bot, &message, &connection).await?;
+                show_emergency_info(&bot, message.chat.id, &connection, &tera).await?
+            }
+            BotDialogState::WaitingForInvite => {
+                accept_invite(&bot, &message, &connection).await?;
+                show_menu(&bot, message.chat.id, &connection, &tera).await?
+            }
+            BotDialogState::Idle => {
+                bot.send_message(message.chat.id, "Команда не найдена")
+                    .await?;
+                show_menu(&bot, message.chat.id, &connection, &tera).await?
+            }
         }
-    // Default handler
     } else {
-        bot.send_message(message.chat.id, "Команда не найдена")
-            .await?;
         None
     };
 
@@ -368,62 +285,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<BotDialogState>, BotDialogState>()
-                .inspect_async(mark_alive)
-                .inspect_async(update_profile)
+                .inspect_async(mark_alive_middleware)
+                .inspect_async(update_profile_middleware)
                 .endpoint(message_handler),
         )
-        .branch(Update::filter_callback_query().endpoint(callback_handler));
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::SetEmergencyText)))
-    //         .endpoint(ask_for_emergency_info),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::GetEmergencyText)))
-    //         .endpoint(get_emergency_info),
-    // )
-    // .branch(dptree::filter(|command| matches!(command, Some(Command::ImOk))).endpoint(im_ok))
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::EnableMonitoring)))
-    //         .endpoint(enable_monitoring),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::DisableMonitoring)))
-    //         .endpoint(disable_monitoring),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::GetMonitoring)))
-    //         .endpoint(get_monitoring),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::GetInvite)))
-    //         .endpoint(get_invite_code),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::AcceptInvite)))
-    //         .endpoint(ask_for_invite),
-    // )
-    // .branch(
-    //     dptree::filter(|command| matches!(command, Some(Command::GetSecondaryOwners)))
-    //         .endpoint(get_secondary_owners),
-    // )
-    // // Dialogs
-    // .branch(
-    //     dptree::filter(|state: BotDialogState| {
-    //         matches!(state, BotDialogState::WaitingEmergencyText)
-    //     })
-    //     .endpoint(set_emergency_info),
-    // )
-    // .branch(
-    //     dptree::filter(|state: BotDialogState| {
-    //         matches!(state, BotDialogState::WaitingForInvite)
-    //     })
-    //     .endpoint(accept_invite),
-    // )
-    // .endpoint(|bot: Bot, message: Message| async move {
-    //     bot.send_message(message.chat.id, "Unknown command!")
-    //         .await?;
-    //     Ok(())
-    // });
+        .branch(
+            Update::filter_callback_query()
+                .enter_dialogue::<CallbackQuery, InMemStorage<BotDialogState>, BotDialogState>()
+                .endpoint(callback_handler),
+        );
 
     log::info!("Started listening...");
     Dispatcher::builder(bot, handler)
