@@ -146,6 +146,7 @@ pub async fn show_menu(
     bot.send_message(chat_id, answer)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
+        .disable_web_page_preview(true)
         .await?;
 
     Ok(None)
