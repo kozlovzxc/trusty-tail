@@ -1,18 +1,38 @@
 use std::error::Error;
 
-use teloxide::prelude::*;
+use chrono::prelude::*;
+use sea_orm::{prelude::*, sea_query::OnConflict, ActiveValue};
+use teloxide::{prelude::*, types::MessageId};
 
-use crate::types::BotDialogue;
+use crate::{entity::alive_events, types::BotDialogState};
 
-pub async fn im_ok(
-    bot: Bot,
-    message: Message,
-    dialogue: BotDialogue,
+pub async fn mark_alive(
+    chat_id: ChatId,
+    connection: &DatabaseConnection,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    dialogue.exit().await?;
-
-    bot.send_message(message.chat.id, "Хорошего дня, все отметили")
-        .await?;
+    alive_events::Entity::insert(alive_events::ActiveModel {
+        chat_id: ActiveValue::Set(chat_id.0),
+        timestamp: ActiveValue::Set(Utc::now().naive_utc()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(alive_events::Column::ChatId)
+            .update_column(alive_events::Column::Timestamp)
+            .to_owned(),
+    )
+    .exec(connection)
+    .await?;
 
     Ok(())
+}
+
+pub async fn mark_alive_callback(
+    bot: &Bot,
+    chat_id: ChatId,
+    message_id: MessageId,
+    connection: &DatabaseConnection,
+) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
+    mark_alive(chat_id, connection).await?;
+    bot.delete_message(chat_id, message_id).await?;
+    Ok(None)
 }
