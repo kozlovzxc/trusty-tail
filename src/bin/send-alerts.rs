@@ -1,10 +1,10 @@
 use chrono::NaiveDateTime;
-use sea_orm::sea_query::Expr;
+use sea_orm::prelude::*;
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QuerySelect,
 };
 use std::error::Error;
-use teloxide::{requests::Requester, types::ChatId, Bot};
+use teloxide::prelude::*;
 use trusty_tail::connection;
 use trusty_tail::entity::{
     alive_events, emergency_info, monitoring_statuses, profiles, secondary_owners,
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             bot.send_message(
                 ChatId(status.chat_id),
-                "🚨 Высылаем текст на экстренный случай всем запасным владельцам питомца, а пока ставим бота на паузу, чтобы включить его снова воспользуйтесь командой /enable_monitoring"
+                "🚨 Высылаем текст на экстренный случай всем запасным владельцам питомца, а пока ставим бота на паузу."
             ).await?;
 
             monitoring_statuses::Entity::update_many()

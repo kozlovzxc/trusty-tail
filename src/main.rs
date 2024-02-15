@@ -1,4 +1,3 @@
-use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait};
 use std::error::Error;
@@ -23,7 +22,6 @@ use trusty_tail::{connection, entity::*};
 enum MessageCommand {
     Start,
     Menu,
-    ImOk,
 }
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
@@ -140,7 +138,6 @@ async fn message_handler(
                 show_menu(&bot, message.chat.id, &connection, &tera).await?
             }
             MessageCommand::Menu => show_menu(&bot, message.chat.id, &connection, &tera).await?,
-            _ => None,
         }
     // Match state second
     } else if let Some(state) = dialogue.get().await.ok().flatten() {
