@@ -38,7 +38,7 @@ async fn get_primary_owners(
         .join_rev(
             JoinType::InnerJoin,
             secondary_owners::Entity::belongs_to(profiles::Entity)
-                .from(secondary_owners::Column::SecondaryOwnerChatId)
+                .from(secondary_owners::Column::PrimaryOwnerChatId)
                 .to(profiles::Column::ChatId)
                 .into(),
         )
