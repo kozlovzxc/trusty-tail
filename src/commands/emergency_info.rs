@@ -72,7 +72,6 @@ pub async fn ask_for_emergency_info(
 }
 
 pub async fn set_emergency_info(
-    bot: &Bot,
     message: &Message,
     connection: &DatabaseConnection,
 ) -> Result<Option<BotDialogState>, Box<dyn Error + Sync + Send>> {

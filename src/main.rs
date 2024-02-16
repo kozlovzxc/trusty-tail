@@ -143,7 +143,7 @@ async fn message_handler(
     } else if let Some(state) = dialogue.get().await.ok().flatten() {
         match state {
             BotDialogState::WaitingEmergencyText => {
-                set_emergency_info(&bot, &message, &connection).await?;
+                set_emergency_info(&message, &connection).await?;
                 show_emergency_info(&bot, message.chat.id, &connection, &tera).await?
             }
             BotDialogState::WaitingForInvite => {
