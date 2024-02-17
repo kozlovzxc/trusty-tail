@@ -14,7 +14,7 @@ use trusty_tail::entity::{
 pub struct MonitoringStatusesAliveJoin {
     pub chat_id: i64,
     pub enabled: bool,
-    pub timestamp: NaiveDateTime,
+    pub timestamp: Option<NaiveDateTime>,
 }
 
 #[tokio::main]
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .filter(monitoring_statuses::Column::Enabled.eq(true))
         .column_as(alive_events::Column::Timestamp, "timestamp")
         .join_rev(
-            JoinType::InnerJoin,
+            JoinType::LeftJoin,
             alive_events::Entity::belongs_to(monitoring_statuses::Entity)
                 .from(alive_events::Column::ChatId)
                 .to(monitoring_statuses::Column::ChatId)
@@ -38,7 +38,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .filter(
             alive_events::Column::Timestamp
-                .lt(chrono::Utc::now().naive_utc() - chrono::Duration::days(2)),
+                .lt(chrono::Utc::now().naive_utc() - chrono::Duration::days(2))
+                .or(alive_events::Column::Timestamp.is_null()),
         )
         .into_model::<MonitoringStatusesAliveJoin>()
         .paginate(&connection, 50);
@@ -53,7 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             bot.send_message(
                 ChatId(status.chat_id),
-                "🚨 Высылаем текст на экстренный случай всем запасным владельцам питомца, а пока ставим бота на паузу."
+                "🚨 Высылаем текст на экстренный случай всем экстренным контактам, а пока ставим бота на паузу."
             ).await?;
 
             monitoring_statuses::Entity::update_many()
@@ -82,7 +83,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 bot.send_message(
                     ChatId(recipient.secondary_owner_chat_id),
                     format!(
-                        "🚨 {} не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что с ним и с его животным все в порядке. Вот текст на экстренный случай:\n\n{}", 
+                        "🚨 {} не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что все в порядке. Вот текст на экстренный случай:\n\n{}",
                         username,
                         alert_text
                     )
