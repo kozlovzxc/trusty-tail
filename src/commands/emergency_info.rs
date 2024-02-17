@@ -14,7 +14,7 @@ async fn get_emerengecy_info_keyboard() -> InlineKeyboardMarkup {
 
     keyboard.push(vec![InlineKeyboardButton::callback(
         "👈 Главное меню",
-        "/main_menu",
+        "/owner_menu",
     )]);
 
     keyboard.push(vec![InlineKeyboardButton::callback(

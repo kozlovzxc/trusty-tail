@@ -7,8 +7,8 @@ use teloxide::{prelude::*, types::MessageId};
 use crate::{entity::alive_events, types::BotDialogState};
 
 pub async fn mark_alive(
-    chat_id: ChatId,
     connection: &DatabaseConnection,
+    chat_id: ChatId,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     alive_events::Entity::insert(alive_events::ActiveModel {
         chat_id: ActiveValue::Set(chat_id.0),
@@ -32,7 +32,7 @@ pub async fn mark_alive_callback(
     message_id: MessageId,
     connection: &DatabaseConnection,
 ) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
-    mark_alive(chat_id, connection).await?;
+    mark_alive(connection, chat_id).await?;
     bot.delete_message(chat_id, message_id).await?;
     Ok(None)
 }

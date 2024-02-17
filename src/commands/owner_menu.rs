@@ -3,14 +3,48 @@ use sea_orm::{prelude::*, ActiveValue, JoinType, QuerySelect};
 use std::error::Error;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId, ParseMode},
 };
 use tera::{Context, Tera};
 
 use crate::{
-    entity::{invites, monitoring_statuses_utils::is_enabled, profiles, secondary_owners},
+    entity::{
+        invites,
+        monitoring_statuses_utils::{is_enabled, set_monitoring},
+        profiles, secondary_owners,
+    },
     types::BotDialogState,
 };
+
+pub async fn handle_enable_monitoring(
+    bot: &Bot,
+    chat_id: ChatId,
+    message_id: MessageId,
+    connection: &DatabaseConnection,
+) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
+    set_monitoring(connection, chat_id, true).await?;
+
+    let keyboard = get_keyboard(connection, chat_id).await;
+    bot.edit_message_reply_markup(chat_id, message_id)
+        .reply_markup(keyboard)
+        .await?;
+    Ok(None)
+}
+
+pub async fn handle_disable_monitoring(
+    bot: &Bot,
+    chat_id: ChatId,
+    message_id: teloxide::types::MessageId,
+    connection: &DatabaseConnection,
+) -> Result<Option<BotDialogState>, Box<dyn Error + Sync + Send>> {
+    set_monitoring(connection, chat_id, false).await?;
+
+    let keyboard = get_keyboard(connection, chat_id).await;
+    bot.edit_message_reply_markup(chat_id, message_id)
+        .reply_markup(keyboard)
+        .await?;
+    Ok(None)
+}
 
 async fn get_secondary_owners(
     connection: &DatabaseConnection,
@@ -25,24 +59,6 @@ async fn get_secondary_owners(
                 .into(),
         )
         .filter(secondary_owners::Column::PrimaryOwnerChatId.eq(chat_id.0))
-        .all(connection)
-        .await
-        .unwrap_or(vec![])
-}
-
-async fn get_primary_owners(
-    connection: &DatabaseConnection,
-    chat_id: ChatId,
-) -> Vec<profiles::Model> {
-    profiles::Entity::find()
-        .join_rev(
-            JoinType::InnerJoin,
-            secondary_owners::Entity::belongs_to(profiles::Entity)
-                .from(secondary_owners::Column::PrimaryOwnerChatId)
-                .to(profiles::Column::ChatId)
-                .into(),
-        )
-        .filter(secondary_owners::Column::SecondaryOwnerChatId.eq(chat_id.0))
         .all(connection)
         .await
         .unwrap_or(vec![])
@@ -91,37 +107,34 @@ async fn get_invite_code(connection: &DatabaseConnection, chat_id: ChatId) -> Op
     }
 }
 
-pub async fn get_menu_keyboard(
-    connection: &DatabaseConnection,
-    chat_id: ChatId,
-) -> InlineKeyboardMarkup {
+async fn get_keyboard(connection: &DatabaseConnection, chat_id: ChatId) -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
 
+    keyboard.push(vec![InlineKeyboardButton::callback(
+        "👈 Меню резервного контакта",
+        "/contact_menu",
+    )]);
     keyboard.push(vec![InlineKeyboardButton::callback(
         "⚠️️ Экстренная информация",
         "/emergency_info",
     )]);
-    let enabled = is_enabled(connection, chat_id.0).await;
+    let enabled = is_enabled(connection, chat_id).await;
     if enabled {
         keyboard.push(vec![InlineKeyboardButton::callback(
-            "✅ Включено",
+            "🔔 Выключить мониторинг",
             "/disable",
         )]);
     } else {
         keyboard.push(vec![InlineKeyboardButton::callback(
-            "❌️ Выключено",
+            "🔕 Включить мониторинг",
             "/enable",
         )]);
     }
-    keyboard.push(vec![InlineKeyboardButton::callback(
-        "🤝 Принять приглашение",
-        "/ask_for_invite",
-    )]);
 
     InlineKeyboardMarkup::new(keyboard)
 }
 
-pub async fn show_menu(
+pub async fn show_owner_menu(
     bot: &Bot,
     chat_id: ChatId,
     connection: &DatabaseConnection,
@@ -130,19 +143,15 @@ pub async fn show_menu(
     let secondary_owners = get_secondary_owners(connection, chat_id).await;
     let secondary_owners = format_owners(secondary_owners);
 
-    let primary_owners = get_primary_owners(connection, chat_id).await;
-    let primary_owners = format_owners(primary_owners);
-
     let invite_code = get_invite_code(connection, chat_id)
         .await
         .unwrap_or("Ошибка".to_string());
 
-    let keyboard = get_menu_keyboard(connection, chat_id).await;
+    let keyboard = get_keyboard(connection, chat_id).await;
     let mut context = Context::new();
-    context.insert("primary_owners", &primary_owners);
     context.insert("secondary_owners", &secondary_owners);
     context.insert("invite_code", &invite_code);
-    let answer = tera.render("menu.html", &context).unwrap();
+    let answer = tera.render("owner_menu.html", &context).unwrap();
     bot.send_message(chat_id, answer)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)

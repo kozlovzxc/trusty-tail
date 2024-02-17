@@ -5,14 +5,16 @@ use teloxide::dispatching::dialogue::{GetChatId, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 use tera::Tera;
-use trusty_tail::commands::alive::{mark_alive, mark_alive_callback};
+use trusty_tail::commands::alive::mark_alive_callback;
+use trusty_tail::commands::contact_menu::show_contact_menu;
 use trusty_tail::commands::emergency_info::{
     ask_for_emergency_info, set_emergency_info, show_emergency_info,
 };
 use trusty_tail::commands::invites::{accept_invite, ask_for_invite};
-use trusty_tail::commands::menu::show_menu;
+use trusty_tail::commands::owner_menu::{
+    handle_disable_monitoring, handle_enable_monitoring, show_owner_menu,
+};
 use trusty_tail::commands::start::show_start_info;
-use trusty_tail::commands::status::{disable_monitoring, enable_monitoring};
 use trusty_tail::config::Config;
 use trusty_tail::types::{BotDialogState, BotDialogue};
 use trusty_tail::{connection, entity::*};
@@ -21,7 +23,10 @@ use trusty_tail::{connection, entity::*};
 #[command(rename_rule = "snake_case")]
 enum MessageCommand {
     Start,
+    // Legacy
     Menu,
+    OwnerMenu,
+    ContactMenu,
 }
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
@@ -31,7 +36,8 @@ enum CallbackCommand {
     Disable,
     EmergencyInfo,
     AskForEmergencyInfo,
-    MainMenu,
+    OwnerMenu,
+    ContactMenu,
     AskForInvite,
     MarkAlive,
 }
@@ -84,17 +90,17 @@ async fn callback_handler(
         Some(command) => command,
         None => {
             bot.send_message(chat_id, "Команда не найдена").await?;
-            show_menu(&bot, chat_id, &connection, &tera).await?;
+            show_owner_menu(&bot, chat_id, &connection, &tera).await?;
             return Err("Unknown command".into());
         }
     };
 
     let next_state = match command {
         CallbackCommand::Enable => {
-            enable_monitoring(&bot, chat_id, message_id, &connection).await?
+            handle_enable_monitoring(&bot, chat_id, message_id, &connection).await?
         }
         CallbackCommand::Disable => {
-            disable_monitoring(&bot, chat_id, message_id, &connection).await?
+            handle_disable_monitoring(&bot, chat_id, message_id, &connection).await?
         }
         CallbackCommand::EmergencyInfo => {
             show_emergency_info(&bot, chat_id, &connection, &tera).await?
@@ -102,7 +108,10 @@ async fn callback_handler(
         CallbackCommand::AskForEmergencyInfo => {
             ask_for_emergency_info(&bot, chat_id, &tera).await?
         }
-        CallbackCommand::MainMenu => show_menu(&bot, chat_id, &connection, &tera).await?,
+        CallbackCommand::OwnerMenu => show_owner_menu(&bot, chat_id, &connection, &tera).await?,
+        CallbackCommand::ContactMenu => {
+            show_contact_menu(&bot, chat_id, &connection, &tera).await?
+        }
         CallbackCommand::AskForInvite => ask_for_invite(&bot, chat_id).await?,
         CallbackCommand::MarkAlive => {
             mark_alive_callback(&bot, chat_id, message_id, &connection).await?
@@ -132,12 +141,13 @@ async fn message_handler(
     // Match command first
     let next_state = if let Some(command) = command {
         match command {
-            MessageCommand::Start => {
-                mark_alive(message.chat.id, &connection).await?;
-                show_start_info(&bot, &message, &tera).await?;
-                show_menu(&bot, message.chat.id, &connection, &tera).await?
+            MessageCommand::Start => show_start_info(&bot, &message, &connection, &tera).await?,
+            MessageCommand::Menu | MessageCommand::OwnerMenu => {
+                show_owner_menu(&bot, message.chat.id, &connection, &tera).await?
             }
-            MessageCommand::Menu => show_menu(&bot, message.chat.id, &connection, &tera).await?,
+            MessageCommand::ContactMenu => {
+                show_contact_menu(&bot, message.chat.id, &connection, &tera).await?
+            }
         }
     // Match state second
     } else if let Some(state) = dialogue.get().await.ok().flatten() {
@@ -148,12 +158,12 @@ async fn message_handler(
             }
             BotDialogState::WaitingForInvite => {
                 accept_invite(&bot, &message, &connection).await?;
-                show_menu(&bot, message.chat.id, &connection, &tera).await?
+                show_contact_menu(&bot, message.chat.id, &connection, &tera).await?
             }
             BotDialogState::Idle => {
                 bot.send_message(message.chat.id, "Команда не найдена")
                     .await?;
-                show_menu(&bot, message.chat.id, &connection, &tera).await?
+                None
             }
         }
     } else {
