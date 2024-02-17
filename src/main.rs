@@ -42,8 +42,6 @@ enum CallbackCommand {
     MarkAlive,
 }
 
-type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
-
 async fn update_profile_middleware(message: Message, connection: DatabaseConnection) {
     let username = message
         .from()
@@ -134,7 +132,7 @@ async fn message_handler(
     dialogue: BotDialogue,
     connection: DatabaseConnection,
     tera: Tera,
-) -> HandlerResult {
+) -> Result<(), Box<dyn Error + Sync + Send>> {
     let text = message.text().unwrap_or_default();
     let command = MessageCommand::parse(&text, "").ok();
 

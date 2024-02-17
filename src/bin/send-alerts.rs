@@ -1,11 +1,12 @@
 use chrono::NaiveDateTime;
-use sea_orm::prelude::*;
 use sea_orm::{
-    ColumnTrait, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QuerySelect,
+    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QuerySelect,
 };
 use std::error::Error;
 use teloxide::prelude::*;
 use trusty_tail::connection;
+use trusty_tail::entity::monitoring_statuses_utils::set_monitoring;
 use trusty_tail::entity::{
     alive_events, emergency_info, monitoring_statuses, profiles, secondary_owners,
 };
@@ -15,6 +16,54 @@ pub struct MonitoringStatusesAliveJoin {
     pub chat_id: i64,
     pub enabled: bool,
     pub timestamp: Option<NaiveDateTime>,
+}
+
+async fn send_alert(
+    bot: &Bot,
+    connection: &DatabaseConnection,
+    chat_id: ChatId,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let info = emergency_info::Entity::find()
+        .filter(emergency_info::Column::ChatId.eq(chat_id.0))
+        .one(connection)
+        .await?;
+    let alert_text = info.clone().map(|x| x.text).unwrap_or("---".to_string());
+
+    bot.send_message(
+        chat_id,
+        "🚨 Высылаем текст на экстренный случай всем экстренным контактам, а пока ставим бота на паузу."
+    ).await?;
+
+    set_monitoring(&connection, chat_id, false).await?;
+
+    let username = profiles::Entity::find()
+        .filter(profiles::Column::ChatId.eq(chat_id.0))
+        .one(connection)
+        .await?
+        .map_or_else(
+            || "Владелец питомца".to_owned(),
+            |x| format!("@{}", x.username),
+        );
+
+    let recipents = secondary_owners::Entity::find()
+        .filter(secondary_owners::Column::PrimaryOwnerChatId.eq(chat_id.0))
+        .into_model::<secondary_owners::Model>()
+        .all(connection)
+        .await?;
+
+    for recipient in recipents {
+        log::info!("{:?}", recipient);
+        bot.send_message(
+            ChatId(recipient.secondary_owner_chat_id),
+            format!(
+                "🚨 {} не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что все в порядке. Вот текст на экстренный случай:\n\n{}",
+                username,
+                alert_text
+            )
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -46,49 +95,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     while let Some(statuses) = statuses_pages.fetch_and_next().await? {
         for status in statuses {
-            let info = emergency_info::Entity::find()
-                .filter(emergency_info::Column::ChatId.eq(status.chat_id))
-                .one(&connection)
-                .await?;
-            let alert_text = info.clone().map(|x| x.text).unwrap_or("---".to_string());
-
-            bot.send_message(
-                ChatId(status.chat_id),
-                "🚨 Высылаем текст на экстренный случай всем экстренным контактам, а пока ставим бота на паузу."
-            ).await?;
-
-            monitoring_statuses::Entity::update_many()
-                .col_expr(monitoring_statuses::Column::Enabled, Expr::value(false))
-                .filter(monitoring_statuses::Column::ChatId.eq(status.chat_id))
-                .exec(&connection)
-                .await?;
-
-            let username = profiles::Entity::find()
-                .filter(profiles::Column::ChatId.eq(status.chat_id))
-                .one(&connection)
-                .await?
-                .map_or_else(
-                    || "Владелец питомца".to_owned(),
-                    |x| format!("@{}", x.username),
-                );
-
-            let recipents = secondary_owners::Entity::find()
-                .filter(secondary_owners::Column::PrimaryOwnerChatId.eq(status.chat_id))
-                .into_model::<secondary_owners::Model>()
-                .all(&connection)
-                .await?;
-
-            for recipient in recipents {
-                log::info!("{:?}", recipient);
-                bot.send_message(
-                    ChatId(recipient.secondary_owner_chat_id),
-                    format!(
-                        "🚨 {} не вышел на связь в течение нескольких дней. Пожалуйста, проверьте, что все в порядке. Вот текст на экстренный случай:\n\n{}",
-                        username,
-                        alert_text
-                    )
-                )
-                .await?;
+            let result = send_alert(&bot, &connection, ChatId(status.chat_id)).await;
+            if result.is_err() {
+                log::error!("{:?}", result);
             }
         }
     }
