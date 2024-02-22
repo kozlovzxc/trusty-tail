@@ -6,6 +6,7 @@ mod m20240105_155622_create_monitoring_statuses_table;
 mod m20240114_210132_create_invites_table;
 mod m20240114_210350_create_secondary_owners_table;
 mod m20240115_192831_create_profiles_table;
+mod m20240222_210939_enable_monitoring;
 
 pub struct Migrator;
 
@@ -19,6 +20,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20240114_210132_create_invites_table::Migration),
             Box::new(m20240114_210350_create_secondary_owners_table::Migration),
             Box::new(m20240115_192831_create_profiles_table::Migration),
+            Box::new(m20240222_210939_enable_monitoring::Migration),
         ]
     }
 }

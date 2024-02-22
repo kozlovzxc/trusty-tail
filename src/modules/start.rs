@@ -4,6 +4,7 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 use tera::Tera;
 
+use crate::statuses::utils::set_monitoring;
 use crate::types::BotDialogState;
 
 use super::alive::mark_alive;
@@ -30,6 +31,7 @@ pub async fn show_start_info(
     tera: &Tera,
 ) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
     mark_alive(connection, message.chat.id).await?;
+    set_monitoring(connection, message.chat.id, true).await?;
 
     let keyboard = get_keyboard();
     let context = tera::Context::new();

@@ -3,46 +3,33 @@ use sea_orm::{prelude::*, ActiveValue, JoinType, QuerySelect};
 use std::error::Error;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
 };
 use tera::{Context, Tera};
 
 use crate::{
-    entity::{
-        invites,
-        monitoring_statuses_utils::{is_enabled, set_monitoring},
-        profiles, secondary_owners,
-    },
+    entity::{invites, profiles, secondary_owners},
+    statuses::utils::set_monitoring,
     types::BotDialogState,
 };
 
 pub async fn handle_enable_monitoring(
     bot: &Bot,
     chat_id: ChatId,
-    message_id: MessageId,
     connection: &DatabaseConnection,
 ) -> Result<Option<BotDialogState>, Box<dyn Error + Send + Sync>> {
     set_monitoring(connection, chat_id, true).await?;
-
-    let keyboard = get_keyboard(connection, chat_id).await;
-    bot.edit_message_reply_markup(chat_id, message_id)
-        .reply_markup(keyboard)
-        .await?;
+    bot.send_message(chat_id, "Мониторинг включен.").await?;
     Ok(None)
 }
 
 pub async fn handle_disable_monitoring(
     bot: &Bot,
     chat_id: ChatId,
-    message_id: teloxide::types::MessageId,
     connection: &DatabaseConnection,
 ) -> Result<Option<BotDialogState>, Box<dyn Error + Sync + Send>> {
     set_monitoring(connection, chat_id, false).await?;
-
-    let keyboard = get_keyboard(connection, chat_id).await;
-    bot.edit_message_reply_markup(chat_id, message_id)
-        .reply_markup(keyboard)
-        .await?;
+    bot.send_message(chat_id, "Мониторинг выключен.").await?;
     Ok(None)
 }
 
@@ -107,7 +94,7 @@ async fn get_invite_code(connection: &DatabaseConnection, chat_id: ChatId) -> Op
     }
 }
 
-async fn get_keyboard(connection: &DatabaseConnection, chat_id: ChatId) -> InlineKeyboardMarkup {
+fn get_keyboard() -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
 
     keyboard.push(vec![InlineKeyboardButton::callback(
@@ -118,18 +105,6 @@ async fn get_keyboard(connection: &DatabaseConnection, chat_id: ChatId) -> Inlin
         "⚠️️ Экстренная информация",
         "/emergency_info",
     )]);
-    let enabled = is_enabled(connection, chat_id).await;
-    if enabled {
-        keyboard.push(vec![InlineKeyboardButton::callback(
-            "🔔 Выключить мониторинг",
-            "/disable",
-        )]);
-    } else {
-        keyboard.push(vec![InlineKeyboardButton::callback(
-            "🔕 Включить мониторинг",
-            "/enable",
-        )]);
-    }
 
     InlineKeyboardMarkup::new(keyboard)
 }
@@ -147,7 +122,7 @@ pub async fn show_owner_menu(
         .await
         .unwrap_or("Ошибка".to_string());
 
-    let keyboard = get_keyboard(connection, chat_id).await;
+    let keyboard = get_keyboard();
     let mut context = Context::new();
     context.insert("secondary_owners", &secondary_owners);
     context.insert("invite_code", &invite_code);

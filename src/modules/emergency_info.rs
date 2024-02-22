@@ -13,7 +13,7 @@ async fn get_emerengecy_info_keyboard() -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
 
     keyboard.push(vec![InlineKeyboardButton::callback(
-        "👈 Главное меню",
+        "👈 Меню для владельцев питомцев",
         "/owner_menu",
     )]);
 

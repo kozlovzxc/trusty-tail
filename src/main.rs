@@ -5,17 +5,17 @@ use teloxide::dispatching::dialogue::{GetChatId, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 use tera::Tera;
-use trusty_tail::commands::alive::mark_alive_callback;
-use trusty_tail::commands::contact_menu::show_contact_menu;
-use trusty_tail::commands::emergency_info::{
+use trusty_tail::config::Config;
+use trusty_tail::modules::alive::{mark_alive, mark_alive_callback};
+use trusty_tail::modules::contact_menu::show_contact_menu;
+use trusty_tail::modules::emergency_info::{
     ask_for_emergency_info, set_emergency_info, show_emergency_info,
 };
-use trusty_tail::commands::invites::{accept_invite, ask_for_invite};
-use trusty_tail::commands::owner_menu::{
+use trusty_tail::modules::invites::{accept_invite, ask_for_invite};
+use trusty_tail::modules::owner_menu::{
     handle_disable_monitoring, handle_enable_monitoring, show_owner_menu,
 };
-use trusty_tail::commands::start::show_start_info;
-use trusty_tail::config::Config;
+use trusty_tail::modules::start::show_start_info;
 use trusty_tail::types::{BotDialogState, BotDialogue};
 use trusty_tail::{connection, entity::*};
 
@@ -27,13 +27,13 @@ enum MessageCommand {
     Menu,
     OwnerMenu,
     ContactMenu,
+    Enable,
+    Disable,
 }
 
 #[derive(BotCommands, Clone, PartialEq, Eq)]
 #[command(rename_rule = "snake_case")]
 enum CallbackCommand {
-    Enable,
-    Disable,
     EmergencyInfo,
     AskForEmergencyInfo,
     OwnerMenu,
@@ -61,6 +61,10 @@ async fn update_profile_middleware(message: Message, connection: DatabaseConnect
     .exec(&connection)
     .await
     .unwrap();
+}
+
+async fn mark_alive_middleware(message: Message, connection: DatabaseConnection) {
+    mark_alive(&connection, message.chat.id).await.unwrap();
 }
 
 async fn callback_handler(
@@ -94,12 +98,6 @@ async fn callback_handler(
     };
 
     let next_state = match command {
-        CallbackCommand::Enable => {
-            handle_enable_monitoring(&bot, chat_id, message_id, &connection).await?
-        }
-        CallbackCommand::Disable => {
-            handle_disable_monitoring(&bot, chat_id, message_id, &connection).await?
-        }
         CallbackCommand::EmergencyInfo => {
             show_emergency_info(&bot, chat_id, &connection, &tera).await?
         }
@@ -145,6 +143,12 @@ async fn message_handler(
             }
             MessageCommand::ContactMenu => {
                 show_contact_menu(&bot, message.chat.id, &connection, &tera).await?
+            }
+            MessageCommand::Enable => {
+                handle_enable_monitoring(&bot, message.chat.id, &connection).await?
+            }
+            MessageCommand::Disable => {
+                handle_disable_monitoring(&bot, message.chat.id, &connection).await?
             }
         }
     // Match state second
@@ -206,6 +210,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<BotDialogState>, BotDialogState>()
                 .inspect_async(update_profile_middleware)
+                .inspect_async(mark_alive_middleware)
                 .endpoint(message_handler),
         )
         .branch(
