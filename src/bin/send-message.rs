@@ -13,11 +13,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     log::info!("Starting...");
     let config = Config::init();
     log::info!("Initialized config...");
-    let database_full_url = format!(
-        "postgres://{}:{}@{}/{}",
-        config.db_user, config.db_password, config.db_url, config.db_name
-    );
-    let connection = Database::connect(database_full_url).await?;
+    let connection = Database::connect(config.db_url).await?;
     log::info!("Connected to database...");
     let bot = Bot::from_env();
 

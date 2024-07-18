@@ -6,11 +6,7 @@ use std::error::Error;
 pub async fn init() -> Result<DatabaseConnection, Box<dyn Error>> {
     let config = Config::init();
 
-    let database_url = format!(
-        "postgres://{}:{}@{}/{}",
-        config.db_user, config.db_password, config.db_url, config.db_name
-    );
-    let mut opt = ConnectOptions::new(database_url);
+    let mut opt = ConnectOptions::new(config.db_url);
     opt.sqlx_logging_level(log::LevelFilter::Debug);
     let connection = Database::connect(opt).await?;
     log::info!("Connected to database...");

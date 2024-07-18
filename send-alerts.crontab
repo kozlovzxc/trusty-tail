@@ -1,0 +1,1 @@
+0 */12 * * * root cd /app && cargo run --bin send-alerts >> /var/log/cron.log 2>&1

@@ -1,0 +1,5 @@
+{
+    "image": "mcr.microsoft.com/devcontainers/rust:bookworm",
+    "runArgs": ["--network", "trusty-tail_devcontainer"],
+    "postCreateCommand": "./.devcontainer/post-create-command.sh"
+}
