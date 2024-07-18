@@ -1,0 +1,7 @@
+version: "3.9"
+
+services:
+  trusty-tail:
+    build: .
+    env_file:
+      - .env
